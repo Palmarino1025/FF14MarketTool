@@ -6,7 +6,7 @@ from dash.dependencies import Input, Output, State
 import plotly.graph_objs as go
 import requests
 from datetime import datetime, UTC
-from DataAquisition import fetch_and_save_item_data, train_or_update_model
+from DataAquisition import fetch_and_save_item_data, train_or_update_model, fetch_prices_for_items
 from prediction_util import load_model_and_scaler, predict_next_price_from_model
 
 
@@ -147,7 +147,7 @@ def run_dash_app():
 
                     highest = max(prices)
                     lowest = min(prices)
-                    average_price = sum(prices) / len(prices)
+                    # average_price = sum(prices) / len(prices)
 
                     predicted_price = predict_next_price_from_model(prices, model, scaler)
 
@@ -240,7 +240,6 @@ def run_dash_app():
         Output("update-status", "children"),
         Input("update-btn", "n_clicks")
     )
-
     def update_item_list(n_clicks):
         global item_data
         if n_clicks > 0:
@@ -267,17 +266,37 @@ def main():
     while True:
         print("\nOptions:")
         print("1. Update item list from XIVAPI")
-        print("2. Exit")
+        print("2. Train or update model")
+        print("3. Launch app server")
+        print("4. Exit")
 
         choice = input("Enter your choice: ")
 
-        if choice == "1":
-            fetch_and_save_item_data()
-        elif choice == "2":
-            print("Goodbye!")
-            break
-        else:
-            print("Invalid choice. Try again.")
+        match choice:
+            case "1":
+                fetch_and_save_item_data()
+            case "2":
+                # Load items.json
+                items_path = os.path.join(os.path.dirname(__file__), "items.json")
+                with open(items_path, "r", encoding="utf-8") as f:
+                    items = json.load(f)
+                item_ids = list(items.values())
+                # Choose a server/world
+                server = "Leviathan"  # or prompt user for input
+                # Fetch prices for all items
+                prices = fetch_prices_for_items(server, item_ids, max_prices=300)
+                if not prices or len(prices) < 10:
+                    print("Not enough price data to train.")
+                else:
+                    train_or_update_model(prices)
+                    print("Model training/updating complete.")
+            case "3":
+                run_dash_app()
+            case "4":
+                print("Goodbye!")
+                break
+            case _:
+                print("Invalid choice. Try again.")
 
 if __name__ == "__main__":
-    run_dash_app()
+    main()

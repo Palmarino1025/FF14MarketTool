@@ -1,5 +1,6 @@
 '''
 Written by: Robert Palmarino
+DataAquisition
 
 API Documentation: https://docs.universalis.app/
 API's used: https://universalis.app/api/v2/marketable, https://xivapi.com/
@@ -21,6 +22,13 @@ def fetch_and_save_item_data(output_path="items.json"):
     page = 1
     item_map = {}
 
+    print("Fetching marketable item IDs from Universalis...")
+    marketable_resp = requests.get("https://universalis.app/api/v2/marketable")
+    if marketable_resp.status_code != 200:
+        print("Failed to fetch marketable items.")
+        return
+    marketable_ids = set(marketable_resp.json())
+
     print("Fetching item data from XIVAPI...")
 
     while True:
@@ -35,7 +43,7 @@ def fetch_and_save_item_data(output_path="items.json"):
         for item in results:
             name = item.get("Name")
             item_id = item.get("ID")
-            if name and item_id:
+            if name and item_id and item_id in marketable_ids:
                 item_map[name] = item_id
 
         next_page = data.get("Pagination", {}).get("PageNext")
@@ -48,8 +56,7 @@ def fetch_and_save_item_data(output_path="items.json"):
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(item_map, f, ensure_ascii=False, indent=2)
 
-    print(f"Done. Saved {len(item_map)} items to '{output_path}'.")
-
+    print(f"Done. Saved {len(item_map)} marketable items to '{output_path}'.")
 
 def prepare_timeseries_data(prices, window_size=5):
     scaler = MinMaxScaler()
@@ -139,7 +146,6 @@ def fetch_prices_for_items(server, item_ids, max_prices=300):
     return all_prices
 
 
-
 # Allows the script to be run directly for testing or imported for function call
 if __name__ == "__main__":
     fetch_and_save_item_data()
@@ -148,4 +154,3 @@ if __name__ == "__main__":
     with open("items.json", "r", encoding="utf-8") as f:
         item_map = json.load(f)
     all_item_ids = list(item_map.values())
-

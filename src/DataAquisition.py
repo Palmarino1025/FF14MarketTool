@@ -10,6 +10,7 @@ import requests
 import json
 import time
 import os
+import pandas as pd
 import numpy as np
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
@@ -131,19 +132,26 @@ def get_sales_count_for_items(server, item_ids):
     return counts
 
 
-def fetch_prices_for_items(server, item_ids, max_prices=300):
-    all_prices = []
-    print(f"Fetching up to {max_prices} prices for {len(item_ids)} items on server '{server}'...")
-    for item_id in item_ids:
-        url = f"https://universalis.app/api/v2/history/{server}/{item_id}?entries={max_prices}"
-        response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
-            entries = data.get("entries", [])
-            prices = [e["pricePerUnit"] for e in entries]
-            all_prices.extend(prices)
-        time.sleep(0.05)  # small delay to avoid hammering API
-    return all_prices
+def fetch_prices_for_item_df(server, item_id, max_prices=200):
+    """
+    Fetches up to max_prices sales for a single item on a server,
+    returns a DataFrame with columns: itemID, dateOfSale, price, serverID.
+    """
+    url = f"https://universalis.app/api/v2/history/{server}/{item_id}?entries={max_prices}"
+    response = requests.get(url)
+    data = []
+    if response.status_code == 200:
+        json_data = response.json()
+        entries = json_data.get("entries", [])
+        for entry in entries:
+            data.append({
+                "itemID": item_id,
+                "dateOfSale": entry.get("timestamp"),  # UNIX timestamp
+                "price": entry.get("pricePerUnit"),
+                "serverID": server
+            })
+    df = pd.DataFrame(data)
+    return df
 
 
 # Allows the script to be run directly for testing or imported for function call

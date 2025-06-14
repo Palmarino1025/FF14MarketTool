@@ -284,7 +284,7 @@ def main():
                 # Choose a server/world
                 server = "Leviathan"  # or prompt user for input
                 # Fetch prices for all items
-                prices = fetch_prices_for_items(server, item_ids, max_prices=300)
+                prices = fetch_prices_for_items(server, item_ids, max_prices=50)
                 if not prices or len(prices) < 10:
                     print("Not enough price data to train.")
                 else:

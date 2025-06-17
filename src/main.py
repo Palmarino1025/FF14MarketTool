@@ -3,15 +3,12 @@ import os
 import dash
 from dash import html, dcc
 from dash.dependencies import Input, Output, State
+import pandas as pd
 import plotly.graph_objs as go
-import requests
-from datetime import datetime, UTC
-from DataAquisition import fetch_and_save_item_data, train_or_update_model, fetch_prices_for_items
-from prediction_util import load_model_and_scaler, predict_next_price_from_model
+from DataAquisition import fetch_and_save_item_data, fetch_top_sales_data
+from prediction_util import train_linear_model
 
 
-
-model, scaler = load_model_and_scaler()
 
 DC_WORLDS = {
     "Aether": ["Adamantoise", "Cactuar", "Faerie", "Gilgamesh", "Jenova", "Midgardsormr", "Sargatanas", "Siren"],
@@ -58,18 +55,19 @@ def run_dash_app():
                     placeholder="Select Data Center",
                     style={"width": "200px"}
                 )
-            ], style={"flex": "1", "minWidth": "220px"}),
+            ], style={"flex": "1", "minWidth": "220px", "marginRight": "20px"}),  # Added marginRight for spacing
 
-            # World Dropdown
+            # World dropdown (next to Data Center)
             html.Div([
                 html.Label("Choose your World:", style={"fontWeight": "bold", "marginBottom": "5px"}),
                 dcc.Dropdown(
                     id="world-dropdown",
-                    options=[],  
+                    options=[{"label": w, "value": w} for w in DC_WORLDS["Aether"]],  # Default to Aether worlds initially
+                    value=DC_WORLDS["Aether"][0],
                     placeholder="Select World",
                     style={"width": "200px"}
                 )
-            ], style={"flex": "1", "minWidth": "220px", "marginLeft": "20px"}),
+            ], style={"flex": "1", "minWidth": "220px"}),
 
             # Item name dropdown + lookup button (right)
             html.Div([
@@ -91,7 +89,7 @@ def run_dash_app():
             "display": "flex",
             "justifyContent": "center",
             "alignItems": "flex-start",
-            "maxWidth": "800px",
+            "maxWidth": "900px",  # Increased to accommodate 3 dropdowns
             "margin": "auto",
             "paddingBottom": "20px"
         }),
@@ -111,59 +109,41 @@ def run_dash_app():
         current_row = []
 
         for i, world in enumerate(worlds):
-            url = f"https://universalis.app/api/v2/history/{world}/{item_id}?entries=300"
             try:
-                response = requests.get(url)
-                response.raise_for_status()
+                df = fetch_top_sales_data(world, top_n=100, sales_limit=50)
+                item_df = df[df["Item ID"] == item_id]
 
-                data = response.json()
-                sales = data.get("entries", [])
-
-                if not sales:
+                if item_df.empty:
                     graph = html.Div(f"No sales found for {world}")
                     stats_div = html.Div()
                 else:
-                    sales_sorted = sorted(sales, key=lambda s: s["timestamp"])
-                    times = [datetime.fromtimestamp(s["timestamp"], UTC) for s in sales_sorted]
-                    prices = [s["pricePerUnit"] for s in sales_sorted]
-
-                    current_price = prices[-1]
-
-                    fig = go.Figure(data=go.Scatter(
-                        x=times,
-                        y=prices,
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(
+                        x=pd.to_datetime(item_df['Timestamp'], unit='s'),
+                        y=item_df['Price'],
                         mode='lines+markers',
                         name=world
                     ))
-
                     fig.update_layout(
                         xaxis_title="Date",
                         yaxis_title="Price (gil)",
                         height=300,
                         margin=dict(l=20, r=20, t=10, b=20)
                     )
-
                     graph = dcc.Graph(figure=fig)
 
-                    highest = max(prices)
-                    lowest = min(prices)
-                    # average_price = sum(prices) / len(prices)
-
-                    predicted_price = predict_next_price_from_model(prices, model, scaler)
+                    min_price = item_df['Price'].min()
+                    max_price = item_df['Price'].max()
+                    current_price = item_df['Price'].iloc[-1]
 
                     stats_text = (
-                        f"High: {highest:,} | Low: {lowest:,} | Current: {current_price:,}"
+                        f"High: {max_price:,} | Low: {min_price:,} | Current: {current_price:,}"
                     )
-                    if predicted_price is not None:
-                        stats_text += f" | Predicted Next: {predicted_price:,.2f}"
-                    else:
-                        print("N/A")
 
                     stats_div = html.Div(
                         stats_text,
                         style={"textAlign": "center", "fontWeight": "bold", "marginTop": "6px"}
                     )
-
             except Exception as e:
                 graph = html.Div(f"Error for {world}: {str(e)}", style={"color": "red"})
                 stats_div = html.Div()
@@ -192,9 +172,7 @@ def run_dash_app():
                 }
             )
 
-            # This makes it so I only have three graphs per row
             current_row.append(block)
-
             if (i + 1) % 3 == 0 or i == len(worlds) - 1:
                 rows.append(html.Div(current_row, style={
                     "display": "flex",
@@ -205,7 +183,6 @@ def run_dash_app():
                 current_row = []
 
         return rows
-
 
     
     #Callback for item lookup and fetching sales
@@ -249,13 +226,15 @@ def run_dash_app():
         return ""
 
     @app.callback(
-    Output("world-dropdown", "options"),
-    Input("dc-dropdown", "value")
+        Output("world-dropdown", "options"),
+        Output("world-dropdown", "value"),
+        Input("dc-dropdown", "value")
     )
-    def update_world_dropdown(selected_dc):
-        if selected_dc and selected_dc in DC_WORLDS:
-            return [{"label": world, "value": world} for world in DC_WORLDS[selected_dc]]
-        return []
+    def update_worlds(selected_dc):
+        worlds = DC_WORLDS.get(selected_dc, [])
+        options = [{"label": w, "value": w} for w in worlds]
+        value = worlds[0] if worlds else None
+        return options, value
 
     app.run_server(debug=True)
 
@@ -284,11 +263,11 @@ def main():
                 # Choose a server/world
                 server = "Leviathan"  # or prompt user for input
                 # Fetch prices for all items
-                prices = fetch_prices_for_items(server, item_ids, max_prices=50)
-                if not prices or len(prices) < 10:
+                df = fetch_top_sales_data(world, top_n=100, sales_limit=50)
+                if not df or len(df) < 10:
                     print("Not enough price data to train.")
                 else:
-                    train_or_update_model(prices)
+                    train_linear_model(df)
                     print("Model training/updating complete.")
             case "3":
                 run_dash_app()
@@ -299,4 +278,4 @@ def main():
                 print("Invalid choice. Try again.")
 
 if __name__ == "__main__":
-    main()
+    run_dash_app()

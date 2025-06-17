@@ -1,26 +1,36 @@
 import numpy as np
-import tensorflow as tf
-import joblib
-import os
-import config
+import pandas as pd
+from sklearn.linear_model import LinearRegression
 
-def load_model_and_scaler():
-    model_path = config.MODEL_PATH
-    scaler_path = config.SCALER_PATH
-    if not os.path.exists(model_path) or not os.path.exists(scaler_path):
-        raise FileNotFoundError("Missing model or scaler file.")
-    model = tf.keras.models.load_model(model_path)
-    scaler = joblib.load(scaler_path)
-    return model, scaler
+def train_linear_model(df):
+    if df.empty:
+        raise ValueError("DataFrame is empty, cannot train model.")
+
+    # Ensure required columns exist
+    if 'Timestamp' not in df or 'Price' not in df:
+        raise ValueError("DataFrame must contain 'Timestamp' and 'Price' columns.")
+
+    X = np.array(df['Timestamp']).reshape(-1, 1)
+    y = np.array(df['Price'])
+
+    model = LinearRegression()
+    model.fit(X, y)
+
+    return model
 
 
-def predict_next_price_from_model(prices, model, scaler, window_size=5):
-    if len(prices) <= window_size:
-        return None
+def predict_next_price_from_model(prices_df, model, le_item, le_server):
+    last_row = prices_df.iloc[-1]
+    itemID_enc = le_item.transform([last_row['itemID']])[0]
+    serverID_enc = le_server.transform([last_row['serverID']])[0]
+    next_date = pd.to_datetime(last_row['dateOfSale']) + pd.Timedelta(days=1)
+    dateOfSale_num = next_date.value // 10**9
 
-    scaled_prices = scaler.transform(np.array(prices).reshape(-1, 1))
-    input_seq = scaled_prices[-window_size:].reshape(1, window_size, 1)
-    pred_scaled = model.predict(input_seq)
-    predicted_price = scaler.inverse_transform(pred_scaled)[0][0]
+    X_pred = pd.DataFrame([{
+        'itemID_enc': itemID_enc,
+        'dateOfSale_num': dateOfSale_num,
+        'serverID_enc': serverID_enc
+    }])
 
+    predicted_price = model.predict(X_pred)[0]
     return predicted_price

@@ -12,10 +12,12 @@ import time
 import os
 import pandas as pd
 import numpy as np
-import tensorflow as tf
-from sklearn.preprocessing import MinMaxScaler
+from datetime import datetime
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
 import joblib
-from config import MODEL_PATH, SCALER_PATH
 
 
 def fetch_and_save_item_data(output_path="items.json"):
@@ -59,100 +61,72 @@ def fetch_and_save_item_data(output_path="items.json"):
 
     print(f"Done. Saved {len(item_map)} marketable items to '{output_path}'.")
 
-def prepare_timeseries_data(prices, window_size=5):
-    scaler = MinMaxScaler()
-    scaled_prices = scaler.fit_transform(np.array(prices).reshape(-1, 1))
+def train_and_save_model(server_name="Leviathan"):
+    print(f"Fetching sales data for {server_name}...")
+    df = fetch_top_sales_data(server_name)
 
-    X, y = [], []
-    for i in range(len(scaled_prices) - window_size):
-        X.append(scaled_prices[i:i+window_size])
-        y.append(scaled_prices[i+window_size])
-    return np.array(X), np.array(y), scaler
+    if df.empty:
+        print("No data fetched, aborting training.")
+        return
 
+    # Features and target
+    X = df[["ItemID", "Server", "Timestamp"]]
+    y = df["Price"]
 
-def create_model(input_shape):
-    model = tf.keras.Sequential([
-        tf.keras.layers.LSTM(64, input_shape=input_shape),
-        tf.keras.layers.Dense(1)
+    # We will encode Server as categorical, ItemID as categorical or numeric, Timestamp numeric
+    # Convert Timestamp to numeric (e.g. seconds since epoch)
+    X["Timestamp"] = pd.to_numeric(X["Timestamp"])
+
+    # Create preprocessing pipeline
+    preprocessor = ColumnTransformer(
+        transformers=[
+            ("cat", OneHotEncoder(handle_unknown='ignore'), ["Server"]),
+            ("num", "passthrough", ["ItemID", "Timestamp"])
+        ]
+    )
+
+    model = Pipeline(steps=[
+        ('preprocessor', preprocessor),
+        ('scaler', StandardScaler()),
+        ('regressor', LinearRegression())
     ])
-    model.compile(optimizer='adam', loss='mse')
-    return model
 
+    print("Training model...")
+    model.fit(X, y)
 
-def train_or_update_model(prices, window_size=5, epochs=10, model_path=MODEL_PATH, scaler_path=SCALER_PATH):
-    prices = np.array(prices).reshape(-1, 1)
-
-    if os.path.exists(model_path) and os.path.exists(scaler_path):
-        print(f"Model and scaler found at {model_path} and {scaler_path}. Loading...")
-        model = tf.keras.models.load_model(model_path)
-        scaler = joblib.load(scaler_path)
-
-        if len(prices) <= window_size:
-            print("Not enough data to train. Skipping training.")
-            return model, scaler
-
-        # Refit the scaler on new prices for correct scaling
-        scaler = MinMaxScaler()
-        scaled_prices = scaler.fit_transform(prices)
-
-        X, y = [], []
-        for i in range(len(scaled_prices) - window_size):
-            X.append(scaled_prices[i:i + window_size])
-            y.append(scaled_prices[i + window_size])
-        X, y = np.array(X), np.array(y)
-
-        model.fit(X, y, epochs=epochs, verbose=0)
-
-    else:
-        print("No model/scaler found. Training new model...")
-        X, y, scaler = prepare_timeseries_data(prices, window_size)
-        model = create_model((X.shape[1], X.shape[2]))
-        model.fit(X, y, epochs=epochs, verbose=0)
-
-    model.save(model_path)
-    joblib.dump(scaler, scaler_path)
+    # Save the model to disk
+    model_path = os.path.join(os.path.dirname(__file__), "linear_regression_model.joblib")
+    joblib.dump(model, model_path)
     print(f"Model saved to {model_path}")
-    print(f"Scaler saved to {scaler_path}")
 
-    return model, scaler
+def fetch_top_sales_data(server_name: str, top_n: int = 100, sales_limit: int = 50) -> pd.DataFrame:
+    with open('items.json', "r", encoding="utf-8") as f:
+        items_dict = json.load(f)
 
+    item_ids = list(items_dict.values())
 
-def get_sales_count_for_items(server, item_ids):
-    counts = {}
-    print(f"Fetching sales counts for {len(item_ids)} items on server '{server}'...")
+    sales_records = []
+
     for item_id in item_ids:
-        url = f"https://universalis.app/api/v2/history/{server}/{item_id}?entries=300"
-        response = requests.get(url)
-        if response.status_code == 200:
-            data = response.json()
-            counts[item_id] = len(data.get("entries", []))
-        else:
-            counts[item_id] = 0
-        time.sleep(0.05)  # small delay to be polite to API
-    return counts
+        history_url = f"https://universalis.app/api/v2/{server_name}/{item_id}"
+        history_resp = requests.get(history_url)
+        if history_resp.status_code != 200:
+            print(f"[Warning] Skipping item {item_id} due to fetch error.")
+            continue
 
-
-def fetch_prices_for_item_df(server, item_id, max_prices=200):
-    """
-    Fetches up to max_prices sales for a single item on a server,
-    returns a DataFrame with columns: itemID, dateOfSale, price, serverID.
-    """
-    url = f"https://universalis.app/api/v2/history/{server}/{item_id}?entries={max_prices}"
-    response = requests.get(url)
-    data = []
-    if response.status_code == 200:
-        json_data = response.json()
-        entries = json_data.get("entries", [])
-        for entry in entries:
-            data.append({
-                "itemID": item_id,
-                "dateOfSale": entry.get("timestamp"),  # UNIX timestamp
-                "price": entry.get("pricePerUnit"),
-                "serverID": server
+        sales = history_resp.json().get("recentHistory", [])[:sales_limit]
+        for sale in sales:
+            timestamp = datetime.fromtimestamp(sale['timestamp'])
+            sales_records.append({
+                "ItemID": int(item_id),
+                "Price": sale["pricePerUnit"],
+                "Timestamp": sale["timestamp"],
+                "Day": timestamp.strftime("%Y-%m-%d"),
+                "Time": timestamp.strftime("%H:%M:%S"),
+                "Server": server_name
             })
-    df = pd.DataFrame(data)
-    return df
 
+    return pd.DataFrame(sales_records)
 
 # Allows the script to be run directly for testing or imported for function call
 if __name__ == "__main__":

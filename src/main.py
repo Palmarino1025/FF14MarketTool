@@ -31,6 +31,14 @@ def load_item_data():
         print(f"items.json not found at: {file_path}")
         item_data = {}
 
+def get_item_id_from_name(name):
+    global item_data
+    load_item_data()
+    for item_name, item_id in item_data.items():
+        if item_name.lower() == name.lower():
+            return int(item_id)
+    return None
+
 def run_dash_app():
     global item_data
     load_item_data()
@@ -58,19 +66,7 @@ def run_dash_app():
                     placeholder="Select Data Center",
                     style={"width": "200px"}
                 )
-            ], style={"flex": "1", "minWidth": "220px", "marginRight": "20px"}),  # Added marginRight for spacing
-
-            # World dropdown (next to Data Center)
-            html.Div([
-                html.Label("Choose your World:", style={"fontWeight": "bold", "marginBottom": "5px"}),
-                dcc.Dropdown(
-                    id="world-dropdown",
-                    options=[{"label": w, "value": w} for w in DC_WORLDS["Aether"]],  # Default to Aether worlds initially
-                    value=DC_WORLDS["Aether"][0],
-                    placeholder="Select World",
-                    style={"width": "200px"}
-                )
-            ], style={"flex": "1", "minWidth": "220px"}),
+            ], style={"flex": "1", "minWidth": "220px", "marginRight": "20px"}),
 
             # Item name dropdown + lookup button (right)
             html.Div([
@@ -92,13 +88,16 @@ def run_dash_app():
             "display": "flex",
             "justifyContent": "center",
             "alignItems": "flex-start",
-            "maxWidth": "900px",  # Increased to accommodate 3 dropdowns
+            "maxWidth": "900px",
             "margin": "auto",
             "paddingBottom": "20px"
         }),
 
         html.Div(id="item-id-output", style={"margin-right": "20px", "font-weight": "bold"}),
 
+        html.Div(id="summary-container", style={"marginTop": "20px"}),
+
+        # Sales graph container
         html.Div(id="sales-output", style={"margin-top": "20px"}),
 
         html.Hr(),
@@ -110,10 +109,44 @@ def run_dash_app():
     def get_sales_by_worlds(worlds, item_id):
         rows = []
         current_row = []
+        top_servers = []
+
+        # Puts top three servers with the lowest price to by the item
+        for world in worlds:
+            try:
+                item_df = fetch_top_sales_data(world, item_id, sales_limit=1000)
+                if not item_df.empty:
+                    current_price = item_df['Price'].iloc[-1]  # most recent
+                    top_servers.append((world, current_price))
+            except Exception as e:
+                print(f"[Error] Fetching for {world}: {e}")
+
+        # Sort by price (ascending) and get top 3
+        top_servers = sorted(top_servers, key=lambda x: x[1])[:3]
+
+        # Create summary HTML block
+        summary_block = html.Div(
+            [
+                html.H3("Top 3 Servers (Lowest Current Price)", style={"textAlign": "center"}),
+                html.Ul([
+                    html.Li(f"{server}: {price:,} gil") for server, price in top_servers
+                ])
+            ],
+            style={
+                "padding": "10px",
+                "marginBottom": "20px",
+                "backgroundColor": "#e6f7ff",
+                "borderRadius": "8px",
+                "textAlign": "center",
+                "boxShadow": "0px 2px 6px rgba(0,0,0,0.1)"
+            }
+        )
+
 
         for i, world in enumerate(worlds):
             try:
                 item_df = fetch_top_sales_data(world, item_id, sales_limit=1000)
+                print(f"{world} - Fetched sales: {len(item_df)}")
                 train_and_save_model(world, item_id)
                 if item_df.empty:
                     graph = html.Div(f"No sales found for {world}")
@@ -203,35 +236,66 @@ def run_dash_app():
 
         return rows
 
-
-    
-    #Callback for item lookup and fetching sales
     @app.callback(
-        [Output("item-id-output", "children"),
-         Output("sales-output", "children")],
+        Output("item-id-output", "children"),
+        Output("summary-container", "children"),
+        Output("sales-output", "children"),
         Input("lookup-btn", "n_clicks"),
-        State("item-name-dropdown", "value"),
-        State("dc-dropdown", "value")
-
+        State("dc-dropdown", "value"),
+        State("item-name-dropdown", "value")
     )
-    def lookup_item_id(n_clicks, item_name, selected_dc):
+    def update_all_outputs(n_clicks, selected_dc, selected_item_name):
         if n_clicks == 0:
-            return "", ""
+            return "", "", ""
 
-        if not item_name:
-            return "Please select an item name.", ""
+        if not selected_item_name:
+            return "Please select an item name.", "", ""
 
         if not selected_dc or selected_dc not in DC_WORLDS:
-            return "Please select a valid data center.", ""
+            return "Please select a valid data center.", "", ""
 
-        item_id = item_data.get(item_name)
+        item_id = get_item_id_from_name(selected_item_name)
         if not item_id:
-            return "Item not found. Try updating the list or check spelling.", ""
+            return "Item not found. Try updating the list or check spelling.", "", ""
 
-        worlds_to_query = DC_WORLDS[selected_dc]
-        graphs = get_sales_by_worlds(worlds_to_query, item_id)
+        # Show item ID output
+        item_id_output = f"Item ID for '{selected_item_name}': {item_id}"
 
-        return f"Item ID for '{item_name}': {item_id}", html.Div(graphs)
+        # Get world list
+        worlds = DC_WORLDS[selected_dc]
+
+        # Sales Graphs
+        graph_blocks = get_sales_by_worlds(worlds, item_id)
+
+        # Build summary block
+        current_prices = []
+        for world in worlds:
+            df = fetch_top_sales_data(world, item_id)
+            if not df.empty:
+                current_price = df["Price"].iloc[-1]
+                current_prices.append((world, current_price))
+
+        top_servers = sorted(current_prices, key=lambda x: x[1])[:3]
+
+        summary_block = html.Div(
+            [
+                html.H3("Top 3 Servers (Lowest Current Price)", style={"textAlign": "center"}),
+                html.Ul([
+                    html.Li(f"{server}: {price:,} gil") for server, price in top_servers
+                ])
+            ],
+            style={
+                "padding": "10px",
+                "marginBottom": "20px",
+                "backgroundColor": "#e6f7ff",
+                "borderRadius": "8px",
+                "textAlign": "center",
+                "boxShadow": "0px 2px 6px rgba(0,0,0,0.1)"
+            }
+        )
+
+        return item_id_output, summary_block, html.Div(graph_blocks)
+
     
     @app.callback(
         Output("update-status", "children"),
@@ -245,58 +309,8 @@ def run_dash_app():
             return "Item list updated successfully."
         return ""
 
-    @app.callback(
-        Output("world-dropdown", "options"),
-        Output("world-dropdown", "value"),
-        Input("dc-dropdown", "value")
-    )
-    def update_worlds(selected_dc):
-        worlds = DC_WORLDS.get(selected_dc, [])
-        options = [{"label": w, "value": w} for w in worlds]
-        value = worlds[0] if worlds else None
-        return options, value
-
     #app.run_server(debug=True)
     app.run(debug=True)
-
-# For Model Training/Data gathering purposes
-def main():
-    print("Welcome to the FFXIV Market Tool")
-
-    while True:
-        print("\nOptions:")
-        print("1. Update item list from XIVAPI")
-        print("2. Train or update model")
-        print("3. Launch app server")
-        print("4. Exit")
-
-        choice = input("Enter your choice: ")
-
-        match choice:
-            case "1":
-                fetch_and_save_item_data()
-            case "2":
-                # Load items.json
-                items_path = os.path.join(os.path.dirname(__file__), "items.json")
-                with open(items_path, "r", encoding="utf-8") as f:
-                    items = json.load(f)
-                item_ids = list(items.values())
-                # Choose a server/world
-                server = "Leviathan"  # or prompt user for input
-                # Fetch prices for all items
-                df = fetch_top_sales_data(world, top_n=100, sales_limit=50)
-                if not df or len(df) < 10:
-                    print("Not enough price data to train.")
-                else:
-                    train_linear_model(df)
-                    print("Model training/updating complete.")
-            case "3":
-                run_dash_app()
-            case "4":
-                print("Goodbye!")
-                break
-            case _:
-                print("Invalid choice. Try again.")
 
 if __name__ == "__main__":
     run_dash_app()

@@ -103,7 +103,9 @@ def train_and_save_model(server_name="Leviathan", item_id=5057):
 
 
 def fetch_top_sales_data(server_name: str, item_id: int, sales_limit: int = 1000) -> pd.DataFrame:
-    history_url = f"https://universalis.app/api/v2/{server_name}/{item_id}"
+    history_url = f"https://universalis.app/api/v2/history/{server_name}/{item_id}?entries={sales_limit}"
+
+    print(history_url)
     print(f"Fetching sales for item {item_id} on {server_name}...")
 
     try:
@@ -112,7 +114,7 @@ def fetch_top_sales_data(server_name: str, item_id: int, sales_limit: int = 1000
             print(f"[Warning] Failed to fetch data for {item_id} from {server_name}")
             return pd.DataFrame()
 
-        sales = history_resp.json().get("recentHistory", [])[:sales_limit]
+        sales = history_resp.json().get("entries", [])[:sales_limit]
 
         sales_records = []
         for sale in sales:

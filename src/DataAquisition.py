@@ -99,23 +99,21 @@ def train_and_save_model(server_name="Leviathan"):
     joblib.dump(model, model_path)
     print(f"Model saved to {model_path}")
 
-def fetch_top_sales_data(server_name: str, top_n: int = 100, sales_limit: int = 50) -> pd.DataFrame:
-    with open('items.json', "r", encoding="utf-8") as f:
-        items_dict = json.load(f)
+def fetch_top_sales_data(server_name: str, item_id: int, sales_limit: int = 300) -> pd.DataFrame:
+    history_url = f"https://universalis.app/api/v2/{server_name}/{item_id}"
+    print(f"Fetching sales for item {item_id} on {server_name}...")
 
-    item_ids = list(items_dict.values())
-
-    sales_records = []
-
-    for item_id in item_ids:
-        history_url = f"https://universalis.app/api/v2/{server_name}/{item_id}"
+    try:
         history_resp = requests.get(history_url)
         if history_resp.status_code != 200:
-            print(f"[Warning] Skipping item {item_id} due to fetch error.")
-            continue
+            print(f"[Warning] Failed to fetch data for {item_id} from {server_name}")
+            return pd.DataFrame()
 
         sales = history_resp.json().get("recentHistory", [])[:sales_limit]
+
+        sales_records = []
         for sale in sales:
+            print(sale)
             timestamp = datetime.fromtimestamp(sale['timestamp'])
             sales_records.append({
                 "ItemID": int(item_id),
@@ -126,13 +124,13 @@ def fetch_top_sales_data(server_name: str, top_n: int = 100, sales_limit: int = 
                 "Server": server_name
             })
 
-    return pd.DataFrame(sales_records)
+        return pd.DataFrame(sales_records)
+
+    except Exception as e:
+        print(f"[Error] Exception fetching data: {e}")
+        return pd.DataFrame()
+
 
 # Allows the script to be run directly for testing or imported for function call
 if __name__ == "__main__":
-    fetch_and_save_item_data()
-
-    # Load items from file to get item IDs
-    with open("items.json", "r", encoding="utf-8") as f:
-        item_map = json.load(f)
-    all_item_ids = list(item_map.values())
+    train_and_save_model()

@@ -3,10 +3,11 @@ import os
 import dash
 from dash import html, dcc
 from dash.dependencies import Input, Output, State
+from joblib import load
 import pandas as pd
 import plotly.graph_objs as go
 from DataAquisition import fetch_and_save_item_data, fetch_top_sales_data
-from prediction_util import train_linear_model
+from prediction_util import predict_next_price_from_model
 
 
 
@@ -17,6 +18,7 @@ DC_WORLDS = {
     "Dynamis": ["Halicarnassus", "Maduin", "Marilith", "Seraph"]
 }
 item_data = {}
+model = load("linear_regression_model.joblib")
 
 def load_item_data():
     global item_data
@@ -32,6 +34,7 @@ def load_item_data():
 def run_dash_app():
     global item_data
     load_item_data()
+
 
     app = dash.Dash(__name__)
     app.title = "FFXIV Market Tool"
@@ -110,13 +113,13 @@ def run_dash_app():
 
         for i, world in enumerate(worlds):
             try:
-                df = fetch_top_sales_data(world, top_n=100, sales_limit=50)
-                item_df = df[df["Item ID"] == item_id]
+                item_df = fetch_top_sales_data(world, item_id, sales_limit=300)
 
                 if item_df.empty:
                     graph = html.Div(f"No sales found for {world}")
                     stats_div = html.Div()
                 else:
+                    # Create price trend graph
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(
                         x=pd.to_datetime(item_df['Timestamp'], unit='s'),
@@ -132,18 +135,32 @@ def run_dash_app():
                     )
                     graph = dcc.Graph(figure=fig)
 
+                    # Stats
                     min_price = item_df['Price'].min()
                     max_price = item_df['Price'].max()
                     current_price = item_df['Price'].iloc[-1]
 
+                    # Predict next price using the pre-trained model
+                    try:
+                        predicted_price = predict_next_price_from_model(item_df, model)
+                        predicted_text = f" | Predicted Next: {predicted_price:,.2f}"
+                    except Exception as e:
+                        predicted_text = " | Predicted Next: (error)"
+
                     stats_text = (
-                        f"High: {max_price:,} | Low: {min_price:,} | Current: {current_price:,}"
+                        f"High: {max_price:,} | Low: {min_price:,} | "
+                        f"Current: {current_price:,}{predicted_text}"
                     )
 
                     stats_div = html.Div(
                         stats_text,
-                        style={"textAlign": "center", "fontWeight": "bold", "marginTop": "6px"}
+                        style={
+                            "textAlign": "center",
+                            "fontWeight": "bold",
+                            "marginTop": "6px"
+                        }
                     )
+
             except Exception as e:
                 graph = html.Div(f"Error for {world}: {str(e)}", style={"color": "red"})
                 stats_div = html.Div()
@@ -173,6 +190,7 @@ def run_dash_app():
             )
 
             current_row.append(block)
+
             if (i + 1) % 3 == 0 or i == len(worlds) - 1:
                 rows.append(html.Div(current_row, style={
                     "display": "flex",
@@ -183,6 +201,7 @@ def run_dash_app():
                 current_row = []
 
         return rows
+
 
     
     #Callback for item lookup and fetching sales

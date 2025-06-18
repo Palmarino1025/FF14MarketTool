@@ -12,6 +12,7 @@ import time
 import os
 import pandas as pd
 import numpy as np
+from prediction_util import predict_next_price_from_model
 from datetime import datetime
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
@@ -61,23 +62,25 @@ def fetch_and_save_item_data(output_path="items.json"):
 
     print(f"Done. Saved {len(item_map)} marketable items to '{output_path}'.")
 
-def train_and_save_model(server_name="Leviathan"):
-    print(f"Fetching sales data for {server_name}...")
-    df = fetch_top_sales_data(server_name)
+def train_and_save_model(server_name="Leviathan", item_id=5057):
+    print(f"Fetching sales data for item {item_id} on {server_name}...")
+    df = fetch_top_sales_data(server_name, item_id, sales_limit=300)
 
     if df.empty:
         print("No data fetched, aborting training.")
         return
 
+    print("\n--- Training Timestamp Range ---")
+    print(f"Min: {df['Timestamp'].min()} -> {pd.to_datetime(df['Timestamp'].min(), unit='s')}")
+    print(f"Max: {df['Timestamp'].max()} -> {pd.to_datetime(df['Timestamp'].max(), unit='s')}")
+    print("--------------------------------\n")
+
     # Features and target
     X = df[["ItemID", "Server", "Timestamp"]]
     y = df["Price"]
 
-    # We will encode Server as categorical, ItemID as categorical or numeric, Timestamp numeric
-    # Convert Timestamp to numeric (e.g. seconds since epoch)
     X["Timestamp"] = pd.to_numeric(X["Timestamp"])
 
-    # Create preprocessing pipeline
     preprocessor = ColumnTransformer(
         transformers=[
             ("cat", OneHotEncoder(handle_unknown='ignore'), ["Server"]),
@@ -94,12 +97,12 @@ def train_and_save_model(server_name="Leviathan"):
     print("Training model...")
     model.fit(X, y)
 
-    # Save the model to disk
-    model_path = os.path.join(os.path.dirname(__file__), "linear_regression_model.joblib")
+    model_path = os.path.join(os.path.dirname(__file__), "regression_model.joblib")
     joblib.dump(model, model_path)
     print(f"Model saved to {model_path}")
 
-def fetch_top_sales_data(server_name: str, item_id: int, sales_limit: int = 300) -> pd.DataFrame:
+
+def fetch_top_sales_data(server_name: str, item_id: int, sales_limit: int = 1000) -> pd.DataFrame:
     history_url = f"https://universalis.app/api/v2/{server_name}/{item_id}"
     print(f"Fetching sales for item {item_id} on {server_name}...")
 
@@ -113,7 +116,6 @@ def fetch_top_sales_data(server_name: str, item_id: int, sales_limit: int = 300)
 
         sales_records = []
         for sale in sales:
-            print(sale)
             timestamp = datetime.fromtimestamp(sale['timestamp'])
             sales_records.append({
                 "ItemID": int(item_id),
@@ -133,4 +135,8 @@ def fetch_top_sales_data(server_name: str, item_id: int, sales_limit: int = 300)
 
 # Allows the script to be run directly for testing or imported for function call
 if __name__ == "__main__":
-    train_and_save_model()
+    train_and_save_model(server_name="Leviathan", item_id=5069)
+    df = fetch_top_sales_data(server_name="Leviathan", item_id=5069)
+    print(predict_next_price_from_model(df))
+
+

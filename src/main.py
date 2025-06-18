@@ -6,7 +6,7 @@ from dash.dependencies import Input, Output, State
 from joblib import load
 import pandas as pd
 import plotly.graph_objs as go
-from DataAquisition import fetch_and_save_item_data, fetch_top_sales_data
+from DataAquisition import fetch_and_save_item_data, fetch_top_sales_data, train_and_save_model
 from prediction_util import predict_next_price_from_model
 
 
@@ -113,8 +113,8 @@ def run_dash_app():
 
         for i, world in enumerate(worlds):
             try:
-                item_df = fetch_top_sales_data(world, item_id, sales_limit=300)
-
+                item_df = fetch_top_sales_data(world, item_id, sales_limit=1000)
+                train_and_save_model(world, item_id)
                 if item_df.empty:
                     graph = html.Div(f"No sales found for {world}")
                     stats_div = html.Div()
@@ -142,8 +142,9 @@ def run_dash_app():
 
                     # Predict next price using the pre-trained model
                     try:
-                        predicted_price = predict_next_price_from_model(item_df, model)
+                        predicted_price = predict_next_price_from_model(item_df)
                         predicted_text = f" | Predicted Next: {predicted_price:,.2f}"
+                        print(predicted_price)
                     except Exception as e:
                         predicted_text = " | Predicted Next: (error)"
 
@@ -255,7 +256,8 @@ def run_dash_app():
         value = worlds[0] if worlds else None
         return options, value
 
-    app.run_server(debug=True)
+    #app.run_server(debug=True)
+    app.run(debug=True)
 
 # For Model Training/Data gathering purposes
 def main():

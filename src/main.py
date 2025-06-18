@@ -18,7 +18,6 @@ DC_WORLDS = {
     "Dynamis": ["Halicarnassus", "Maduin", "Marilith", "Seraph"]
 }
 item_data = {}
-model = load("linear_regression_model.joblib")
 
 def load_item_data():
     global item_data
@@ -109,50 +108,33 @@ def run_dash_app():
     def get_sales_by_worlds(worlds, item_id):
         rows = []
         current_row = []
-        top_servers = []
-
-        # Puts top three servers with the lowest price to by the item
-        for world in worlds:
-            try:
-                item_df = fetch_top_sales_data(world, item_id, sales_limit=1000)
-                if not item_df.empty:
-                    current_price = item_df['Price'].iloc[-1]  # most recent
-                    top_servers.append((world, current_price))
-            except Exception as e:
-                print(f"[Error] Fetching for {world}: {e}")
-
-        # Sort by price (ascending) and get top 3
-        top_servers = sorted(top_servers, key=lambda x: x[1])[:3]
-
-        # Create summary HTML block
-        summary_block = html.Div(
-            [
-                html.H3("Top 3 Servers (Lowest Current Price)", style={"textAlign": "center"}),
-                html.Ul([
-                    html.Li(f"{server}: {price:,} gil") for server, price in top_servers
-                ])
-            ],
-            style={
-                "padding": "10px",
-                "marginBottom": "20px",
-                "backgroundColor": "#e6f7ff",
-                "borderRadius": "8px",
-                "textAlign": "center",
-                "boxShadow": "0px 2px 6px rgba(0,0,0,0.1)"
-            }
-        )
-
+        top_servers = []  # For lowest current price
+        predicted_prices_list = []  # For highest predicted price
 
         for i, world in enumerate(worlds):
             try:
                 item_df = fetch_top_sales_data(world, item_id, sales_limit=1000)
-                print(f"{world} - Fetched sales: {len(item_df)}")
-                train_and_save_model(world, item_id)
                 if item_df.empty:
                     graph = html.Div(f"No sales found for {world}")
                     stats_div = html.Div()
                 else:
-                    # Create price trend graph
+                    current_price = item_df['Price'].iloc[-1]
+                    top_servers.append((world, current_price))
+
+                    # Train model (if needed)
+                    train_and_save_model(world, item_id)
+
+                    # Predict next price
+                    try:
+                        predicted_price = predict_next_price_from_model(item_df)
+                    except Exception as e:
+                        predicted_price = None
+                        print(f"Prediction error for {world}: {e}")
+
+                    if predicted_price is not None:
+                        predicted_prices_list.append((world, predicted_price))
+
+                    # Build graph
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(
                         x=pd.to_datetime(item_df['Timestamp'], unit='s'),
@@ -168,33 +150,17 @@ def run_dash_app():
                     )
                     graph = dcc.Graph(figure=fig)
 
-                    # Stats
+                    # Stats text
                     min_price = item_df['Price'].min()
                     max_price = item_df['Price'].max()
-                    current_price = item_df['Price'].iloc[-1]
 
-                    # Predict next price using the pre-trained model
-                    try:
-                        predicted_price = predict_next_price_from_model(item_df)
-                        predicted_text = f" | Predicted Next: {predicted_price:,.2f}"
-                        print(predicted_price)
-                    except Exception as e:
-                        predicted_text = " | Predicted Next: (error)"
-
-                    stats_text = (
-                        f"High: {max_price:,} | Low: {min_price:,} | "
-                        f"Current: {current_price:,}{predicted_text}"
-                    )
+                    predicted_text = f" | Predicted Next: {predicted_price:,.2f}" if predicted_price is not None else ""
+                    stats_text = f"High: {max_price:,} | Low: {min_price:,} | Current: {current_price:,}{predicted_text}"
 
                     stats_div = html.Div(
                         stats_text,
-                        style={
-                            "textAlign": "center",
-                            "fontWeight": "bold",
-                            "marginTop": "6px"
-                        }
+                        style={"textAlign": "center", "fontWeight": "bold", "marginTop": "6px"}
                     )
-
             except Exception as e:
                 graph = html.Div(f"Error for {world}: {str(e)}", style={"color": "red"})
                 stats_div = html.Div()
@@ -234,7 +200,8 @@ def run_dash_app():
                 }))
                 current_row = []
 
-        return rows
+        # Return both HTML rows and the two lists of prices
+        return rows, top_servers, predicted_prices_list
 
     @app.callback(
         Output("item-id-output", "children"),
@@ -258,31 +225,19 @@ def run_dash_app():
         if not item_id:
             return "Item not found. Try updating the list or check spelling.", "", ""
 
-        # Show item ID output
         item_id_output = f"Item ID for '{selected_item_name}': {item_id}"
 
-        # Get world list
         worlds = DC_WORLDS[selected_dc]
 
-        # Sales Graphs
-        graph_blocks = get_sales_by_worlds(worlds, item_id)
+        # Get sales graphs + price data in one call
+        graph_blocks, current_prices, predicted_prices = get_sales_by_worlds(worlds, item_id)
 
-        # Build summary block
-        current_prices = []
-        for world in worlds:
-            df = fetch_top_sales_data(world, item_id)
-            if not df.empty:
-                current_price = df["Price"].iloc[-1]
-                current_prices.append((world, current_price))
-
+        # Top 3 servers to buy on (lowest current price)
         top_servers = sorted(current_prices, key=lambda x: x[1])[:3]
-
-        summary_block = html.Div(
+        buy_summary_block = html.Div(
             [
                 html.H3("Top 3 Servers (Lowest Current Price)", style={"textAlign": "center"}),
-                html.Ul([
-                    html.Li(f"{server}: {price:,} gil") for server, price in top_servers
-                ])
+                html.Ul([html.Li(f"{server}: {price:,} gil") for server, price in top_servers])
             ],
             style={
                 "padding": "10px",
@@ -294,7 +249,36 @@ def run_dash_app():
             }
         )
 
-        return item_id_output, summary_block, html.Div(graph_blocks)
+        # Top 3 servers to sell on (highest predicted price)
+        best_sell_servers = sorted(predicted_prices, key=lambda x: x[1], reverse=True)[:3]
+        sell_summary_block = html.Div(
+            [
+                html.H3("Top 3 Servers to Sell On (Highest Predicted Price)", style={"textAlign": "center"}),
+                html.Ul([html.Li(f"{server}: {price:,.2f} gil (predicted)") for server, price in best_sell_servers])
+            ],
+            style={
+                "padding": "10px",
+                "marginBottom": "20px",
+                "backgroundColor": "#fff2e6",
+                "borderRadius": "8px",
+                "textAlign": "center",
+                "boxShadow": "0px 2px 6px rgba(0,0,0,0.1)"
+            }
+        )
+
+        combined_summary = html.Div(
+            [buy_summary_block, sell_summary_block],
+            style={
+                "display": "flex",
+                "justifyContent": "space-around",
+                "maxWidth": "900px",
+                "margin": "auto"
+            }
+        )
+
+        return item_id_output, combined_summary, html.Div(graph_blocks)
+
+
 
     
     @app.callback(
@@ -304,7 +288,7 @@ def run_dash_app():
     def update_item_list(n_clicks):
         global item_data
         if n_clicks > 0:
-            # fetch_and_save_item_data()
+            fetch_and_save_item_data()
             load_item_data()
             return "Item list updated successfully."
         return ""

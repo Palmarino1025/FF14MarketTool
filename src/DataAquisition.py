@@ -102,7 +102,7 @@ def train_and_save_model(server_name="Leviathan", item_id=5057):
     print(f"Model saved to {model_path}")
 
 
-def fetch_top_sales_data(server_name: str, item_id: int, sales_limit: int = 1000) -> pd.DataFrame:
+def fetch_top_sales_data(server_name: str, item_id: int, sales_limit: int = 300) -> pd.DataFrame:
     history_url = f"https://universalis.app/api/v2/history/{server_name}/{item_id}?entries={sales_limit}"
 
     print(history_url)

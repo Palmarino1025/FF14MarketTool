@@ -126,6 +126,7 @@ def run_dash_app():
 
                     # Predict next price
                     try:
+                        print(f"Model trained and saved for {world} - Item ID: {item_id}")
                         predicted_price = predict_next_price_from_model(item_df)
                     except Exception as e:
                         predicted_price = None
@@ -277,8 +278,6 @@ def run_dash_app():
         )
 
         return item_id_output, combined_summary, html.Div(graph_blocks)
-
-
 
     
     @app.callback(

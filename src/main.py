@@ -101,27 +101,7 @@ def run_dash_app():
                 children=[
                     html.Div(id="item-id-output", style={"marginRight": "20px", "fontWeight": "bold"}),
                     html.Div(id="summary-container", style={"marginTop": "20px"}),
-                    html.Div(id="sales-output", style={"marginTop": "20px"}),
-                    html.Div(
-                        "Loading statistics, this may take a few moments...",
-                        id="loading-message",
-                        style={
-                            "position": "fixed",
-                            "top": "50%",
-                            "left": "50%",
-                            "transform": "translate(-50%, -50%)",
-                            "zIndex": "9999",
-                            "color": "#333",
-                            "fontSize": "24px",
-                            "fontWeight": "bold",
-                            "textAlign": "center",
-                            "backgroundColor": "rgba(255, 255, 255, 0.8)",
-                            "padding": "20px",
-                            "borderRadius": "10px",
-                            "boxShadow": "0px 0px 10px rgba(0,0,0,0.2)",
-                            "display": "none"
-                        }
-                    )
+                    html.Div(id="sales-output", style={"marginTop": "20px"})
                 ]
             )
         ),
@@ -130,20 +110,6 @@ def run_dash_app():
 
         html.Button("Update Item List", id="update-btn", n_clicks=0),
         html.Div(id="update-status", style={"margin-top": "10px", "color": "green"}),
-
-        # Fix: Add missing closing bracket and parenthesis here
-        html.Script("""
-            const observer = new MutationObserver(() => {
-                const spinner = document.querySelector('#loading-spinner .dash-spinner');
-                const message = document.getElementById('loading-message');
-                if (spinner && message) {
-                    message.style.display = 'block';
-                } else if (message) {
-                    message.style.display = 'none';
-                }
-            });
-            observer.observe(document.body, { childList: true, subtree: true });
-        """)
     ])
     
 
@@ -198,9 +164,16 @@ def run_dash_app():
                     min_price = item_df['Price'].min()
                     max_price = item_df['Price'].max()
 
-                    predicted_text = f" | Predicted Next: {predicted_price:,.2f}" if predicted_price is not None else ""
-                    stats_text = f"High: {max_price:,} | Low: {min_price:,} | Current: {current_price:,}{predicted_text}"
-
+                    predicted_text = f"Predicted Next Sale: {predicted_price:,.2f}" if predicted_price is not None else ""
+                    stats_text = html.Div([
+                        html.Div(f"Highest Sale: {max_price:,}"),
+                        html.Div(f"--------------------"),
+                        html.Div(f"Lowest Sale: {min_price:,}"),
+                        html.Div(f"--------------------"),
+                        html.Div(f"Current Price: {current_price:,}"),
+                        html.Div(f"--------------------"),
+                        html.Div(predicted_text)
+                    ])
                     stats_div = html.Div(
                         stats_text,
                         style={"textAlign": "center", "fontWeight": "bold", "marginTop": "6px"}
@@ -218,13 +191,15 @@ def run_dash_app():
                         "marginBottom": "10px",
                         "color": "#2a2a2a"
                     }),
-                    graph,
-                    stats_div
+                    html.Div([
+                        html.Div(graph, style={"flex": "3"}),
+                        html.Div(stats_div, style={"flex": "1", "paddingLeft": "10px"})
+                    ], style={"display": "flex", "flexDirection": "row", "alignItems": "center"})
                 ],
                 style={
                     "flex": "1",
                     "minWidth": "300px",
-                    "maxWidth": "33%",
+                    "maxWidth": "100%",
                     "padding": "10px",
                     "boxSizing": "border-box",
                     "border": "1px solid #ccc",
@@ -232,6 +207,7 @@ def run_dash_app():
                     "backgroundColor": "#f9f9f9"
                 }
             )
+
 
             current_row.append(block)
 
@@ -244,7 +220,6 @@ def run_dash_app():
                 }))
                 current_row = []
 
-        # Return both HTML rows and the two lists of prices
         return rows, top_servers, predicted_prices_list
 
     @app.callback(
@@ -268,30 +243,18 @@ def run_dash_app():
         if not item_id:
             return "Item not found. Try updating the list or check spelling.", ""
         
-        loading_msg = html.Div(
-            "Loading statistics, this may take a few moments...",
-            style={
-                "textAlign": "center",
-                "fontSize": "24px",
-                "fontWeight": "bold",
-                "marginTop": "100px",
-                "color": "#444"
-            }
-        )
-
         # item_id_output = f"Item ID for '{selected_item_name}': {item_id}"
 
         worlds = DC_WORLDS[selected_dc]
 
-        # Get sales graphs + price data in one call
         graph_blocks, current_prices, predicted_prices = get_sales_by_worlds(worlds, item_id)
 
-        # Top 3 servers to buy on (lowest current price)
         top_servers = sorted(current_prices, key=lambda x: x[1])[:3]
         buy_summary_block = html.Div(
             [
                 html.H3("Top 3 Servers (Lowest Current Price)", style={"textAlign": "center"}),
-                html.Ul([html.Li(f"{server}: {price:,} gil") for server, price in top_servers])
+                html.Ul([html.Li(f"{server}: {price:,} gil") for server, price in top_servers],
+                        style={"listStyleType": "none", "padding": 0, "textAlign": "center"})
             ],
             style={
                 "padding": "10px",
@@ -303,12 +266,12 @@ def run_dash_app():
             }
         )
 
-        # Top 3 servers to sell on (highest predicted price)
         best_sell_servers = sorted(predicted_prices, key=lambda x: x[1], reverse=True)[:3]
         sell_summary_block = html.Div(
             [
                 html.H3("Top 3 Servers to Sell On (Highest Predicted Price)", style={"textAlign": "center"}),
-                html.Ul([html.Li(f"{server}: {price:,.2f} gil (predicted)") for server, price in best_sell_servers])
+                html.Ul([html.Li(f"{server}: {price:,.2f} gil (Predicted Next Price)") for server, price in best_sell_servers],
+                        style={"listStyleType": "none", "padding": 0, "textAlign": "center"})
             ],
             style={
                 "padding": "10px",
@@ -345,7 +308,6 @@ def run_dash_app():
             return "Item list updated successfully."
         return ""
 
-    #app.run_server(debug=True)
     app.run(debug=True)
 
 if __name__ == "__main__":

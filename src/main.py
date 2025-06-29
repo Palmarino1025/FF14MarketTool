@@ -79,7 +79,7 @@ def run_dash_app():
                         clearable=True,
                         style={"width": "300px"}
                     ),
-                    html.Button("Lookup Item ID", id="lookup-btn", n_clicks=0, style={"marginLeft": "10px", "height": "38px"})
+                    html.Button("Lookup Item", id="lookup-btn", n_clicks=0, style={"marginLeft": "10px", "height": "38px"})
                 ], style={"display": "flex", "alignItems": "center"})
             ], style={"flex": "2", "minWidth": "350px", "marginLeft": "40px"})
         ],
@@ -92,18 +92,61 @@ def run_dash_app():
             "paddingBottom": "20px"
         }),
 
-        html.Div(id="item-id-output", style={"margin-right": "20px", "font-weight": "bold"}),
-
-        html.Div(id="summary-container", style={"marginTop": "20px"}),
-
-        # Sales graph container
-        html.Div(id="sales-output", style={"margin-top": "20px"}),
+        dcc.Loading(
+            id="loading-spinner",
+            type="cube",
+            fullscreen=True,
+            children=html.Div(
+                id="loading-wrapper",
+                children=[
+                    html.Div(id="item-id-output", style={"marginRight": "20px", "fontWeight": "bold"}),
+                    html.Div(id="summary-container", style={"marginTop": "20px"}),
+                    html.Div(id="sales-output", style={"marginTop": "20px"}),
+                    html.Div(
+                        "Loading statistics, this may take a few moments...",
+                        id="loading-message",
+                        style={
+                            "position": "fixed",
+                            "top": "50%",
+                            "left": "50%",
+                            "transform": "translate(-50%, -50%)",
+                            "zIndex": "9999",
+                            "color": "#333",
+                            "fontSize": "24px",
+                            "fontWeight": "bold",
+                            "textAlign": "center",
+                            "backgroundColor": "rgba(255, 255, 255, 0.8)",
+                            "padding": "20px",
+                            "borderRadius": "10px",
+                            "boxShadow": "0px 0px 10px rgba(0,0,0,0.2)",
+                            "display": "none"
+                        }
+                    )
+                ]
+            )
+        ),
 
         html.Hr(),
 
         html.Button("Update Item List", id="update-btn", n_clicks=0),
-        html.Div(id="update-status", style={"margin-top": "10px", "color": "green"})
+        html.Div(id="update-status", style={"margin-top": "10px", "color": "green"}),
+
+        # Fix: Add missing closing bracket and parenthesis here
+        html.Script("""
+            const observer = new MutationObserver(() => {
+                const spinner = document.querySelector('#loading-spinner .dash-spinner');
+                const message = document.getElementById('loading-message');
+                if (spinner && message) {
+                    message.style.display = 'block';
+                } else if (message) {
+                    message.style.display = 'none';
+                }
+            });
+            observer.observe(document.body, { childList: true, subtree: true });
+        """)
     ])
+    
+
 
     def get_sales_by_worlds(worlds, item_id):
         rows = []
@@ -113,7 +156,7 @@ def run_dash_app():
 
         for i, world in enumerate(worlds):
             try:
-                item_df = fetch_top_sales_data(world, item_id, sales_limit=1000)
+                item_df = fetch_top_sales_data(world, item_id, sales_limit=300)
                 if item_df.empty:
                     graph = html.Div(f"No sales found for {world}")
                     stats_div = html.Div()
@@ -205,7 +248,6 @@ def run_dash_app():
         return rows, top_servers, predicted_prices_list
 
     @app.callback(
-        Output("item-id-output", "children"),
         Output("summary-container", "children"),
         Output("sales-output", "children"),
         Input("lookup-btn", "n_clicks"),
@@ -214,19 +256,30 @@ def run_dash_app():
     )
     def update_all_outputs(n_clicks, selected_dc, selected_item_name):
         if n_clicks == 0:
-            return "", "", ""
+            return "", ""
 
         if not selected_item_name:
-            return "Please select an item name.", "", ""
+            return "Please select an item name.", ""
 
         if not selected_dc or selected_dc not in DC_WORLDS:
-            return "Please select a valid data center.", "", ""
+            return "Please select a valid data center.", ""
 
         item_id = get_item_id_from_name(selected_item_name)
         if not item_id:
-            return "Item not found. Try updating the list or check spelling.", "", ""
+            return "Item not found. Try updating the list or check spelling.", ""
+        
+        loading_msg = html.Div(
+            "Loading statistics, this may take a few moments...",
+            style={
+                "textAlign": "center",
+                "fontSize": "24px",
+                "fontWeight": "bold",
+                "marginTop": "100px",
+                "color": "#444"
+            }
+        )
 
-        item_id_output = f"Item ID for '{selected_item_name}': {item_id}"
+        # item_id_output = f"Item ID for '{selected_item_name}': {item_id}"
 
         worlds = DC_WORLDS[selected_dc]
 
@@ -277,7 +330,7 @@ def run_dash_app():
             }
         )
 
-        return item_id_output, combined_summary, html.Div(graph_blocks)
+        return combined_summary, html.Div(graph_blocks)
 
     
     @app.callback(

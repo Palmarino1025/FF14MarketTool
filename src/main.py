@@ -3,10 +3,9 @@ import os
 import dash
 from dash import html, dcc
 from dash.dependencies import Input, Output, State
-from joblib import load
 import pandas as pd
 import plotly.graph_objs as go
-from DataAquisition import fetch_and_save_item_data, fetch_top_sales_data, train_and_save_model
+from DataAquisition import fetch_top_sales_data, train_and_save_model
 from prediction_util import predict_next_price_from_model
 
 
@@ -51,69 +50,90 @@ def run_dash_app():
         filtered = list(item_data.keys())
         return [{"label": name, "value": name} for name in filtered]
 
-    app.layout = html.Div([
-        html.H1("FFXIV Item Lookup"),
+    app.layout = html.Div(
+        children=[
+            html.H1(
+                "FFXIV Item Lookup",
+                style={
+                    "textAlign": "left",
+                    "color": "#0c8ad8",
+                    "fontFamily": "Segoe UI, sans-serif",
+                    "fontSize": "36px",
+                    "marginTop": "20px",
+                    "marginBottom": "20px",
+                    "textShadow": "1px 1px 2px rgba(0, 0, 0, 0.2)"
+                }
+            ),
 
-        html.Div([
-            # Data Center dropdown (left)
             html.Div([
-                html.Label("Choose your Data Center:", style={"fontWeight": "bold", "marginBottom": "5px"}),
-                dcc.Dropdown(
-                    id="dc-dropdown",
-                    options=[{"label": dc, "value": dc} for dc in DC_WORLDS.keys()],
-                    value="Aether",
-                    placeholder="Select Data Center",
-                    style={"width": "200px"}
-                )
-            ], style={"flex": "1", "minWidth": "220px", "marginRight": "20px"}),
-
-            # Item name dropdown + lookup button (right)
-            html.Div([
-                html.Label("Select Item:", style={"fontWeight": "bold", "marginBottom": "5px"}),
+                # Data Center dropdown (left)
                 html.Div([
+                    html.Label("Choose your Data Center:", style={"fontWeight": "bold", "marginBottom": "5px"}),
                     dcc.Dropdown(
-                        id="item-name-dropdown",
-                        options=get_dropdown_options(),
-                        placeholder="Start typing item name...",
-                        searchable=True,
-                        clearable=True,
-                        style={"width": "300px"}
-                    ),
-                    html.Button("Lookup Item", id="lookup-btn", n_clicks=0, style={"marginLeft": "10px", "height": "38px"})
+                        id="dc-dropdown",
+                        options=[{"label": dc, "value": dc} for dc in DC_WORLDS.keys()],
+                        value="Aether",
+                        placeholder="Select Data Center",
+                        style={"width": "200px", "backgroundColor": "#d6d3d3"}
+                    )
+                ], style={"flex": "1", "minWidth": "220px", "marginRight": "20px"}),
+
+                # Item name dropdown + lookup button (right)
+                html.Div([
+                    html.Div([
+                        html.Label("Type your Item here:", style={"fontWeight": "bold", "marginBottom": "5px"}),
+                        dcc.Dropdown(
+                            id="item-name-dropdown",
+                            options=get_dropdown_options(),
+                            placeholder="Start typing item name...",
+                            searchable=True,
+                            clearable=True,
+                            style={"width": "300px", "backgroundColor": "#d6d3d3"}
+                        ),
+                        dcc.Input(
+                            id="enter-catcher",
+                            type="text",
+                            placeholder="Press Enter to search",
+                            style={"display": "none"},
+                            debounce=True
+                        )
+                    ]),
+                    html.Button("Lookup Item", id="lookup-btn", n_clicks=0, style={"marginLeft": "10px", "height": "38px", "backgroundColor": "#d6d3d3"})
                 ], style={"display": "flex", "alignItems": "center"})
-            ], style={"flex": "2", "minWidth": "350px", "marginLeft": "40px"})
+            ],
+            style={
+                "display": "flex",
+                "justifyContent": "center",
+                "alignItems": "flex-start",
+                "maxWidth": "900px",
+                "margin": "auto",
+                "paddingBottom": "20px"
+            }),
+
+            dcc.Loading(
+                id="loading-spinner",
+                type="cube",
+                fullscreen=True,
+                children=html.Div(
+                    id="loading-wrapper",
+                    children=[
+                        html.Div(id="item-id-output", style={"marginRight": "20px", "fontWeight": "bold"}),
+                        html.Div(id="summary-container", style={"marginTop": "20px"}),
+                        html.Div(id="sales-output", style={"marginTop": "20px"})
+                    ]
+                )
+            ),
+
+            html.Hr()
         ],
         style={
-            "display": "flex",
-            "justifyContent": "center",
-            "alignItems": "flex-start",
-            "maxWidth": "900px",
-            "margin": "auto",
-            "paddingBottom": "20px"
-        }),
+            "backgroundColor": "#acabab",  # light gray
+            "minHeight": "100vh",          # ensures full screen coverage
+            "padding": "20px"
+        }
+    )
 
-        dcc.Loading(
-            id="loading-spinner",
-            type="cube",
-            fullscreen=True,
-            children=html.Div(
-                id="loading-wrapper",
-                children=[
-                    html.Div(id="item-id-output", style={"marginRight": "20px", "fontWeight": "bold"}),
-                    html.Div(id="summary-container", style={"marginTop": "20px"}),
-                    html.Div(id="sales-output", style={"marginTop": "20px"})
-                ]
-            )
-        ),
-
-        html.Hr(),
-
-        html.Button("Update Item List", id="update-btn", n_clicks=0),
-        html.Div(id="update-status", style={"margin-top": "10px", "color": "green"}),
-    ])
     
-
-
     def get_sales_by_worlds(worlds, item_id):
         rows = []
         current_row = []
@@ -130,10 +150,8 @@ def run_dash_app():
                     current_price = item_df['Price'].iloc[-1]
                     top_servers.append((world, current_price))
 
-                    # Train model (if needed)
                     train_and_save_model(world, item_id)
 
-                    # Predict next price
                     try:
                         print(f"Model trained and saved for {world} - Item ID: {item_id}")
                         predicted_price = predict_next_price_from_model(item_df)
@@ -226,10 +244,11 @@ def run_dash_app():
         Output("summary-container", "children"),
         Output("sales-output", "children"),
         Input("lookup-btn", "n_clicks"),
+        Input("enter-catcher", "n_submit"),
         State("dc-dropdown", "value"),
         State("item-name-dropdown", "value")
     )
-    def update_all_outputs(n_clicks, selected_dc, selected_item_name):
+    def update_all_outputs(n_clicks, n_submit, selected_dc, selected_item_name):
         if n_clicks == 0:
             return "", ""
 
@@ -294,19 +313,6 @@ def run_dash_app():
         )
 
         return combined_summary, html.Div(graph_blocks)
-
-    
-    @app.callback(
-        Output("update-status", "children"),
-        Input("update-btn", "n_clicks")
-    )
-    def update_item_list(n_clicks):
-        global item_data
-        if n_clicks > 0:
-            fetch_and_save_item_data()
-            load_item_data()
-            return "Item list updated successfully."
-        return ""
 
     app.run(debug=True)
 

@@ -56,7 +56,7 @@ def run_dash_app():
                 "FFXIV Item Lookup",
                 style={
                     "textAlign": "left",
-                    "color": "#0c8ad8",
+                    "color": "#1870a7",
                     "fontFamily": "Segoe UI, sans-serif",
                     "fontSize": "36px",
                     "marginTop": "20px",
@@ -68,7 +68,7 @@ def run_dash_app():
             html.Div([
                 # Data Center dropdown (left)
                 html.Div([
-                    html.Label("Choose your Data Center:", style={"fontWeight": "bold", "marginBottom": "5px"}),
+                    html.Label("Choose your Data Center:", style={"fontWeight": "bold", "marginBottom": "5px", "color": "#1870a7"}),
                     dcc.Dropdown(
                         id="dc-dropdown",
                         options=[{"label": dc, "value": dc} for dc in DC_WORLDS.keys()],
@@ -81,7 +81,7 @@ def run_dash_app():
                 # Item name dropdown + lookup button (right)
                 html.Div([
                     html.Div([
-                        html.Label("Type your Item here:", style={"fontWeight": "bold", "marginBottom": "5px"}),
+                        html.Label("Type your Item here:", style={"fontWeight": "bold", "marginBottom": "5px", "color": "#1870a7"}),
                         dcc.Dropdown(
                             id="item-name-dropdown",
                             options=get_dropdown_options(),
@@ -127,7 +127,7 @@ def run_dash_app():
             html.Hr()
         ],
         style={
-            "backgroundColor": "#acabab",  # light gray
+            "backgroundColor": "#9E9C9C",  
             "minHeight": "100vh",          # ensures full screen coverage
             "padding": "20px"
         }
@@ -206,6 +206,7 @@ def run_dash_app():
                         "textAlign": "center",
                         "fontWeight": "bold",
                         "fontSize": "20px",
+                        "backgroundColor": "#d6d3d3",
                         "marginBottom": "10px",
                         "color": "#2a2a2a"
                     }),
@@ -222,7 +223,7 @@ def run_dash_app():
                     "boxSizing": "border-box",
                     "border": "1px solid #ccc",
                     "borderRadius": "8px",
-                    "backgroundColor": "#f9f9f9"
+                    "backgroundColor": "#d6d3d3"
                 }
             )
 
